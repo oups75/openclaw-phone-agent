@@ -217,6 +217,21 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0612345678@ht813-fxo")
 
+    async def test_callto_routes_owner_number_via_ht813(self) -> None:
+        response = await self.server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "callto", "arguments": {"target": "0652429419"}},
+            }
+        )
+        self.assertEqual(
+            self.ari_client.originate_requests,
+            [("PJSIP/0652429419@ht813-fxo", None, None, None, None, None)],
+        )
+        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0652429419@ht813-fxo")
+
 
 if __name__ == "__main__":
     unittest.main()
