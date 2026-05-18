@@ -18,6 +18,7 @@ from app.llm_adapter import make_llm_adapter
 from app.settings import settings
 from app.stt_adapter import STTAdapter
 from app.tts_adapter import TTSAdapter
+from app.orpheus_tts_adapter import OrpheusTTSAdapter
 
 logging.basicConfig(level=getattr(logging, settings.phone_agent_log_level.upper(), logging.INFO))
 
@@ -25,7 +26,7 @@ app = FastAPI(title="OpenClaw Phone Agent", version="0.1.0")
 db = Database(settings.phone_agent_db_path)
 decision_engine = DecisionEngine(transfer_threshold=settings.transfer_confidence_threshold)
 llm_adapter = make_llm_adapter(settings)
-tts_adapter = TTSAdapter(settings)
+tts_adapter = OrpheusTTSAdapter(settings) if settings.tts_backend == "orpheus" else TTSAdapter(settings)
 stt_adapter = STTAdapter(settings)
 ari_client = AriClient(settings, db, llm_adapter, tts_adapter, stt_adapter)
 mcp_server = PhoneAgentMcpServer(settings, db, ari_client)

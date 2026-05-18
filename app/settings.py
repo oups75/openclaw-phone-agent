@@ -54,10 +54,16 @@ class Settings(BaseSettings):
     openclaw_state_dir: Path | None = None
 
     tts_enabled: bool = False
+    tts_backend: str = "piper"
     tts_piper_binary: str = "/home/soloway/.local/bin/piper"
     tts_piper_model_path: Path | None = None
     tts_piper_config_path: Path | None = None
     tts_output_dir: Path = REPO_ROOT / "recordings" / "tts"
+
+    orpheus_ollama_model: str = "legraphista/Orpheus:latest"
+    orpheus_voice: str = "tara"
+    orpheus_snac_model_id: str = "hubertsiuzdak/snac_24khz"
+    orpheus_timeout_seconds: int = 120
 
     stt_enabled: bool = True
     stt_whisper_binary: str = "/home/soloway/.local/bin/whisper"

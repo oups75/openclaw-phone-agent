@@ -253,5 +253,95 @@ class ImmediatePromptBeforeOpenClawTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_outbound_stasis_start_up_activates_dialog(self) -> None:
+        """When StasisStart fires with state=Up for an outbound call, dialog must start."""
+        settings = SimpleNamespace(
+            asterisk_base_url="http://127.0.0.1:8088",
+            asterisk_ari_app="openclaw-phone-agent",
+            asterisk_ari_ws_path="/ari/events",
+            asterisk_ari_username="openclaw_agent",
+            asterisk_ari_password="secret",
+            asterisk_playback_sound="demo-congrats",
+            asterisk_recording_format="wav",
+            asterisk_recording_max_duration=60,
+            phone_agent_recordings_dir="/tmp",
+            phone_agent_mixmonitor_dir=Path("/tmp"),
+            phone_agent_public_base_url="http://127.0.0.1:8080",
+            asterisk_playback_timeout=30,
+            dialog_max_turns=1,
+        )
+
+        class FakeLLMAdapter:
+            def process_turn(self, history, call):
+                return SimpleNamespace(
+                    decision=Decision.HANGUP,
+                    confidence=0.9,
+                    explanation="stub",
+                    spoken_response=None,
+                    continue_dialog=False,
+                    source="stub",
+                )
+
+        dialog_task_created: list[bool] = []
+
+        client = AriClient(
+            settings, FakeDb(), FakeLLMAdapter(),
+            SimpleNamespace(is_configured=lambda: False),
+            SimpleNamespace(is_configured=lambda: False),
+        )
+
+        async def fake_play_greeting_with_id(channel_id: str, playback_id: str) -> None:
+            pass
+
+        client.play_greeting_with_id = fake_play_greeting_with_id  # type: ignore[assignment]
+
+        def fake_create_task(coro, *args, **kwargs):
+            dialog_task_created.append(True)
+            coro.close()
+            return SimpleNamespace()
+
+        with patch("app.ari_client.asyncio.create_task", side_effect=fake_create_task):
+            await client._handle_stasis_start(
+                {
+                    "channel": {
+                        "id": "outbound-abc123",
+                        "state": "Up",
+                        "caller": {"number": ""},
+                        "dialplan": {"exten": "0652429419"},
+                    }
+                }
+            )
+
+        self.assertTrue(dialog_task_created, "Dialog task must be created when outbound StasisStart fires with state=Up")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+class OutboundStasisRingingTest(unittest.IsolatedAsyncioTestCase):
+    async def test_outbound_stasis_start_ringing_does_not_activate_dialog(self) -> None:
+        """When StasisStart fires before answer (state!=Up) for outbound, dialog must NOT start yet."""
+        settings = SimpleNamespace(phone_agent_mixmonitor_dir=Path("/tmp"))
+
+        dialog_task_created: list[bool] = []
+
+        client = AriClient(settings, FakeDb(), SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+
+        def fake_create_task(coro, *args, **kwargs):
+            dialog_task_created.append(True)
+            coro.close()
+            return SimpleNamespace()
+
+        with patch("app.ari_client.asyncio.create_task", side_effect=fake_create_task):
+            await client._handle_stasis_start(
+                {
+                    "channel": {
+                        "id": "outbound-xyz789",
+                        "state": "Ring",
+                        "caller": {"number": ""},
+                        "dialplan": {"exten": "0652429419"},
+                    }
+                }
+            )
+
+        self.assertFalse(dialog_task_created, "Dialog must NOT start when outbound StasisStart fires with state=Ring")

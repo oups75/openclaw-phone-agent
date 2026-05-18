@@ -42,14 +42,15 @@ def resolve_outbound_endpoint(target: str, settings: Settings) -> str:
                 return endpoint
 
     if PHONE_NUMBER_RE.match(target):
-        if not settings.outbound_pstn_endpoint:
+        if not settings.outbound_pstn_context:
             raise HTTPException(
                 status_code=400,
-                detail="No HT813 PSTN endpoint configured for phone numbers.",
+                detail="No PSTN context configured for phone numbers.",
             )
         number = _sanitize_phone_number(target)
-        trunk = settings.outbound_pstn_endpoint.removeprefix("PJSIP/")
-        return f"PJSIP/{number}@{trunk}"
+        return settings.outbound_number_template.format(
+            number=number, context=settings.outbound_pstn_context
+        )
 
     raise HTTPException(status_code=404, detail=f"Unknown contact or endpoint: {target}")
 

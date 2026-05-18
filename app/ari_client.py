@@ -92,6 +92,7 @@ class AriClient:
 
     async def handle_event(self, event: dict) -> None:
         event_type = event.get("type", "Unknown")
+        logger.info("ARI event: %s ch=%s", event_type, event.get("channel", {}).get("id", "n/a"))
         if event_type == "StasisStart":
             await self._handle_stasis_start(event)
         elif event_type == "ChannelStateChange":
@@ -115,6 +116,7 @@ class AriClient:
         channel = event.get("channel", {})
         call_id = channel.get("id", "")
         outbound = call_id.startswith("outbound-")
+        channel_state = channel.get("state", "")
         call = CallContext(
             call_id=call_id,
             channel_id=call_id,
@@ -129,7 +131,10 @@ class AriClient:
         mixmonitor_recording = self._mixmonitor_recording_path(call.call_id)
         self.db.add_recording(call.call_id, f"{call.call_id}-mixmonitor", str(mixmonitor_recording), "wav")
         if outbound:
-            logger.info("Outbound call originated: %s", call.call_id)
+            if channel_state == "Up":
+                await self._activate_connected_call(call, answer_first=False)
+            else:
+                logger.info("Outbound call ringing: %s", call.call_id)
             return
 
         await self._activate_connected_call(call, answer_first=True)

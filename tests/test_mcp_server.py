@@ -213,9 +213,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             self.ari_client.originate_requests,
-            [("PJSIP/0612345678@ht813", None, None, None, None, None)],
+            [("Local/0612345678@call-ht813-pstn", None, None, None, None, None)],
         )
-        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0612345678@ht813")
+        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "Local/0612345678@call-ht813-pstn")
 
     async def test_callto_routes_owner_number_via_ht813(self) -> None:
         response = await self.server.handle_request(
@@ -228,9 +228,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             self.ari_client.originate_requests,
-            [("PJSIP/0652429419@ht813", None, None, None, None, None)],
+            [("Local/0652429419@call-ht813-pstn", None, None, None, None, None)],
         )
-        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0652429419@ht813")
+        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "Local/0652429419@call-ht813-pstn")
 
 
 if __name__ == "__main__":
