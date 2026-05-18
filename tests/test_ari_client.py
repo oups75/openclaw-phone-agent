@@ -217,7 +217,7 @@ class ImmediatePromptBeforeOpenClawTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(requests, [("/ari/channels/chan-9", None)])
 
-    async def test_originate_call_uses_create_endpoint(self) -> None:
+    async def test_originate_call_uses_originate_endpoint(self) -> None:
         settings = SimpleNamespace(
             asterisk_base_url="http://127.0.0.1:8088",
             asterisk_ari_app="openclaw-phone-agent",
@@ -239,7 +239,7 @@ class ImmediatePromptBeforeOpenClawTests(unittest.IsolatedAsyncioTestCase):
             requests,
             [
                 (
-                    "/ari/channels/create",
+                    "/ari/channels",
                     {
                         "endpoint": "PJSIP/human-softphone",
                         "app": "openclaw-phone-agent",

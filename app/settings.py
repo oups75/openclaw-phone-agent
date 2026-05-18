@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     softphone_endpoint: str = "PJSIP/human-softphone"
     phonebook_path: Path = REPO_ROOT / "data/phonebook.json"
     outbound_pstn_context: str = "call-ht813-pstn"
-    outbound_pstn_endpoint: str = "PJSIP/ht813-fxo"
+    outbound_pstn_endpoint: str = "PJSIP/ht813"
     outbound_number_template: str = "Local/{number}@{context}"
     transfer_confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     enable_ari_listener: bool = True

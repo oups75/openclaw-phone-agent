@@ -293,7 +293,7 @@ class AriClient:
             body["variables"] = variables
 
         await self._post(
-            "/ari/channels/create",
+            "/ari/channels",
             params=params,
             json_body=body or None,
         )

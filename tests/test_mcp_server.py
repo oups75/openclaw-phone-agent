@@ -93,7 +93,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             softphone_endpoint="PJSIP/human-softphone",
             phonebook_path=self.phonebook_path,
             outbound_pstn_context="call-ht813-pstn",
-            outbound_pstn_endpoint="PJSIP/ht813-fxo",
+            outbound_pstn_endpoint="PJSIP/ht813",
             outbound_number_template="Local/{number}@{context}",
             asterisk_transfer_context="call-human-softphone",
             asterisk_transfer_extension="700",
@@ -213,9 +213,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             self.ari_client.originate_requests,
-            [("PJSIP/0612345678@ht813-fxo", None, None, None, None, None)],
+            [("PJSIP/0612345678@ht813", None, None, None, None, None)],
         )
-        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0612345678@ht813-fxo")
+        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0612345678@ht813")
 
     async def test_callto_routes_owner_number_via_ht813(self) -> None:
         response = await self.server.handle_request(
@@ -228,9 +228,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             self.ari_client.originate_requests,
-            [("PJSIP/0652429419@ht813-fxo", None, None, None, None, None)],
+            [("PJSIP/0652429419@ht813", None, None, None, None, None)],
         )
-        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0652429419@ht813-fxo")
+        self.assertEqual(response["result"]["structuredContent"]["endpoint"], "PJSIP/0652429419@ht813")
 
 
 if __name__ == "__main__":
