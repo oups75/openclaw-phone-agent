@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     cli_llm_command: str = ""
     cli_llm_timeout_seconds: int = 45
 
+    mobile_api_token: str | None = None
+    mobile_chat_history_limit: int = 40
+
     dialog_max_turns: int = 3
     asterisk_turn_recording_max_duration: int = 30
     asterisk_ari_recording_dir: str = "/var/spool/asterisk/recording"

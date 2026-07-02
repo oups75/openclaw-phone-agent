@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.ari_client import AriClient
+from app.chat_engine import ChatEngine
 from app.db import Database
 from app.dialing import resolve_outbound_endpoint
 from app.decision_engine import DecisionEngine
@@ -18,7 +20,6 @@ from app.llm_adapter import make_llm_adapter
 from app.settings import settings
 from app.stt_adapter import STTAdapter
 from app.tts_adapter import TTSAdapter
-from app.orpheus_tts_adapter import OrpheusTTSAdapter
 
 logging.basicConfig(level=getattr(logging, settings.phone_agent_log_level.upper(), logging.INFO))
 
@@ -26,10 +27,16 @@ app = FastAPI(title="OpenClaw Phone Agent", version="0.1.0")
 db = Database(settings.phone_agent_db_path)
 decision_engine = DecisionEngine(transfer_threshold=settings.transfer_confidence_threshold)
 llm_adapter = make_llm_adapter(settings)
-tts_adapter = OrpheusTTSAdapter(settings) if settings.tts_backend == "orpheus" else TTSAdapter(settings)
+if settings.tts_backend == "orpheus":
+    from app.orpheus_tts_adapter import OrpheusTTSAdapter  # noqa: PLC0415 - torch is heavy; import only when needed
+
+    tts_adapter = OrpheusTTSAdapter(settings)
+else:
+    tts_adapter = TTSAdapter(settings)
 stt_adapter = STTAdapter(settings)
 ari_client = AriClient(settings, db, llm_adapter, tts_adapter, stt_adapter)
 mcp_server = PhoneAgentMcpServer(settings, db, ari_client)
+chat_engine = ChatEngine(settings, llm_adapter)
 
 
 class DecisionRequest(BaseModel):
@@ -54,6 +61,28 @@ class CallToRequest(BaseModel):
     target: str
     caller_id: str | None = None
     app_args: str | None = None
+
+
+class ChatRequest(BaseModel):
+    text: str = Field(min_length=1)
+    session_id: str | None = None
+
+
+def _chat_token_ok(provided: str | None) -> bool:
+    expected = settings.mobile_api_token
+    return expected is None or provided == expected
+
+
+def _chat_result_payload(session_id: str, result) -> dict:
+    return {
+        "type": "assistant_message",
+        "session_id": session_id,
+        "text": result.spoken_response or "",
+        "decision": result.decision.value,
+        "confidence": result.confidence,
+        "continue_dialog": result.continue_dialog,
+        "source": result.source,
+    }
 
 
 @app.on_event("startup")
@@ -201,6 +230,70 @@ async def dial_outbound(request: DialOutboundRequest) -> dict:
 async def call_to(request: CallToRequest) -> dict:
     endpoint = resolve_outbound_endpoint(request.target, settings)
     return await _originate_outbound(endpoint, request.caller_id, request.app_args, target=request.target)
+
+
+@app.post("/chat")
+async def chat(request: Request, body: ChatRequest) -> dict:
+    token = request.headers.get("x-api-token") or request.query_params.get("token")
+    if not _chat_token_ok(token):
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+    session_id = body.session_id or uuid.uuid4().hex
+    result = await chat_engine.process_message(session_id, body.text)
+    return _chat_result_payload(session_id, result)
+
+
+@app.delete("/chat/{session_id}")
+async def reset_chat(request: Request, session_id: str) -> dict:
+    token = request.headers.get("x-api-token") or request.query_params.get("token")
+    if not _chat_token_ok(token):
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+    existed = chat_engine.reset(session_id)
+    return {"session_id": session_id, "reset": existed}
+
+
+@app.websocket("/ws/chat")
+async def ws_chat(websocket: WebSocket) -> None:
+    token = websocket.headers.get("x-api-token") or websocket.query_params.get("token")
+    if not _chat_token_ok(token):
+        await websocket.close(code=4401, reason="Invalid or missing API token")
+        return
+
+    await websocket.accept()
+    session_id = websocket.query_params.get("session_id") or uuid.uuid4().hex
+    await websocket.send_json({"type": "ready", "session_id": session_id})
+
+    try:
+        while True:
+            try:
+                payload = await websocket.receive_json()
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON payload"})
+                continue
+
+            kind = payload.get("type", "user_message")
+            if kind == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            if kind == "reset":
+                chat_engine.reset(session_id)
+                await websocket.send_json({"type": "reset_ok", "session_id": session_id})
+                continue
+            if kind != "user_message":
+                await websocket.send_json(
+                    {"type": "error", "message": f"Unknown message type: {kind}"}
+                )
+                continue
+
+            text = str(payload.get("text", "")).strip()
+            if not text:
+                await websocket.send_json({"type": "error", "message": "Empty text"})
+                continue
+
+            await websocket.send_json({"type": "thinking", "session_id": session_id})
+            result = await chat_engine.process_message(session_id, text)
+            await websocket.send_json(_chat_result_payload(session_id, result))
+    except WebSocketDisconnect:
+        pass
 
 
 @app.options("/mcp")
