@@ -113,7 +113,17 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         tool_names = [tool["name"] for tool in response["result"]["tools"]]
         self.assertEqual(
             tool_names,
-            ["list_calls", "get_call", "transfer_call", "hangup_call", "callto", "dial_outbound"],
+            [
+                "list_calls",
+                "get_call",
+                "transfer_call",
+                "hangup_call",
+                "callto",
+                "dial_outbound",
+                "transcribe_voice_message",
+                "get_voice_summary",
+                "search_voice_transcripts",
+            ],
         )
 
     async def test_list_calls_returns_structured_content(self) -> None:

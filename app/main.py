@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from pathlib import Path
@@ -15,8 +16,10 @@ from app.decision_engine import DecisionEngine
 from app.mcp_server import PhoneAgentMcpServer
 from app.models import CallContext, CallStatus
 from app.llm_adapter import make_llm_adapter
+from app.meetily_adapter import MeetilyClient
 from app.settings import settings
 from app.stt_adapter import STTAdapter
+from app.transcription_service import TranscriptionService
 from app.tts_adapter import TTSAdapter
 from app.orpheus_tts_adapter import OrpheusTTSAdapter
 
@@ -29,7 +32,15 @@ llm_adapter = make_llm_adapter(settings)
 tts_adapter = OrpheusTTSAdapter(settings) if settings.tts_backend == "orpheus" else TTSAdapter(settings)
 stt_adapter = STTAdapter(settings)
 ari_client = AriClient(settings, db, llm_adapter, tts_adapter, stt_adapter)
-mcp_server = PhoneAgentMcpServer(settings, db, ari_client)
+meetily_client = MeetilyClient(settings)
+transcription_service = TranscriptionService(settings, meetily_client, stt_adapter=stt_adapter)
+mcp_server = PhoneAgentMcpServer(
+    settings,
+    db,
+    ari_client,
+    transcription_service=transcription_service,
+    meetily=meetily_client,
+)
 
 
 class DecisionRequest(BaseModel):
@@ -54,6 +65,20 @@ class CallToRequest(BaseModel):
     target: str
     caller_id: str | None = None
     app_args: str | None = None
+
+
+class TranscribeVoiceRequest(BaseModel):
+    audio_path: str | None = None
+    audio_b64: str | None = None
+    filename: str | None = None
+    source: str = "unknown"
+    title: str | None = None
+    summarize: bool = False
+    language: str | None = None
+
+
+class SearchTranscriptsRequest(BaseModel):
+    query: str
 
 
 @app.on_event("startup")
@@ -201,6 +226,57 @@ async def dial_outbound(request: DialOutboundRequest) -> dict:
 async def call_to(request: CallToRequest) -> dict:
     endpoint = resolve_outbound_endpoint(request.target, settings)
     return await _originate_outbound(endpoint, request.caller_id, request.app_args, target=request.target)
+
+
+@app.post("/transcriptions")
+async def transcribe_voice(request: TranscribeVoiceRequest) -> dict:
+    if request.audio_b64:
+        if not request.filename:
+            raise HTTPException(status_code=400, detail="filename is required with audio_b64")
+        settings.voice_inbox_dir.mkdir(parents=True, exist_ok=True)
+        audio_path = settings.voice_inbox_dir / Path(request.filename).name
+        audio_path.write_bytes(base64.b64decode(request.audio_b64))
+    elif request.audio_path:
+        audio_path = Path(request.audio_path)
+    else:
+        raise HTTPException(status_code=400, detail="audio_path or audio_b64 is required")
+
+    try:
+        result = await transcription_service.transcribe_voice_message(
+            audio_path,
+            source=request.source,
+            title=request.title,
+            summarize=request.summarize,
+            language=request.language,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {audio_path}")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return {
+        "text": result.text,
+        "source": result.source,
+        "engine": result.engine,
+        "meeting_id": result.meeting_id,
+        "summary_requested": result.summary_requested,
+    }
+
+
+@app.get("/transcriptions/{meeting_id}/summary")
+async def get_transcription_summary(meeting_id: str) -> dict:
+    if not meetily_client.is_configured():
+        raise HTTPException(status_code=503, detail="Meetily backend is not configured")
+    return await meetily_client.get_summary(meeting_id)
+
+
+@app.post("/transcriptions/search")
+async def search_transcriptions(request: SearchTranscriptsRequest) -> list[dict]:
+    if not meetily_client.is_configured():
+        raise HTTPException(status_code=503, detail="Meetily backend is not configured")
+    return await meetily_client.search(request.query)
 
 
 @app.options("/mcp")

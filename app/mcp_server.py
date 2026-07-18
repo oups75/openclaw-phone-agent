@@ -15,10 +15,19 @@ PROTOCOL_VERSION = "2024-11-05"
 
 
 class PhoneAgentMcpServer:
-    def __init__(self, settings: Settings, db: Database, ari_client: AriClient):
+    def __init__(
+        self,
+        settings: Settings,
+        db: Database,
+        ari_client: AriClient,
+        transcription_service=None,
+        meetily=None,
+    ):
         self.settings = settings
         self.db = db
         self.ari_client = ari_client
+        self.transcription_service = transcription_service
+        self.meetily = meetily
 
     async def handle_request(self, payload: dict[str, Any]) -> dict[str, Any]:
         method = payload.get("method")
@@ -148,6 +157,55 @@ class PhoneAgentMcpServer:
                         },
                     },
                 },
+                {
+                    "name": "transcribe_voice_message",
+                    "title": "Transcribe voice message",
+                    "description": (
+                        "Transcribe an audio file (call recording, WhatsApp/Telegram voice note, "
+                        "agent recording) via the Meetily whisper server, archive it as a Meetily "
+                        "meeting, and optionally request an LLM summary."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "audio_path": {"type": "string", "description": "Local path to the audio file."},
+                            "source": {
+                                "type": "string",
+                                "description": "Originating channel: pstn, whatsapp, telegram, el-agent, ...",
+                            },
+                            "title": {"type": "string", "description": "Optional meeting title."},
+                            "summarize": {"type": "boolean", "description": "Request an LLM summary."},
+                            "language": {"type": "string", "description": "Optional language hint (e.g. en, fr)."},
+                        },
+                        "required": ["audio_path"],
+                    },
+                },
+                {
+                    "name": "get_voice_summary",
+                    "title": "Get voice summary",
+                    "description": "Fetch the Meetily summary status/result for a transcribed voice message.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "meeting_id": {"type": "string", "description": "Meetily meeting id."},
+                        },
+                        "required": ["meeting_id"],
+                    },
+                    "annotations": {"readOnlyHint": True},
+                },
+                {
+                    "name": "search_voice_transcripts",
+                    "title": "Search voice transcripts",
+                    "description": "Full-text search across all archived voice transcripts in Meetily.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search text."},
+                        },
+                        "required": ["query"],
+                    },
+                    "annotations": {"readOnlyHint": True},
+                },
             ]
         }
 
@@ -223,7 +281,46 @@ class PhoneAgentMcpServer:
                 target=endpoint,
             )
 
+        if name == "transcribe_voice_message":
+            if self.transcription_service is None:
+                raise HTTPException(status_code=503, detail="Transcription service is not configured")
+            result = await self.transcription_service.transcribe_voice_message(
+                arguments["audio_path"],
+                source=arguments.get("source", "unknown"),
+                title=arguments.get("title"),
+                summarize=bool(arguments.get("summarize", False)),
+                language=arguments.get("language"),
+            )
+            return self._tool_result(
+                text=result.text or "(empty transcript)",
+                structured_content={
+                    "text": result.text,
+                    "source": result.source,
+                    "engine": result.engine,
+                    "meeting_id": result.meeting_id,
+                    "summary_requested": result.summary_requested,
+                },
+            )
+        if name == "get_voice_summary":
+            self._require_meetily()
+            summary = await self.meetily.get_summary(arguments["meeting_id"])
+            return self._tool_result(
+                text=f"Summary status: {summary.get('status', 'unknown')}.",
+                structured_content={"summary": summary},
+            )
+        if name == "search_voice_transcripts":
+            self._require_meetily()
+            results = await self.meetily.search(arguments["query"])
+            return self._tool_result(
+                text=f"Found {len(results)} matching transcripts.",
+                structured_content={"results": results},
+            )
+
         raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+
+    def _require_meetily(self) -> None:
+        if self.meetily is None or not self.meetily.is_configured():
+            raise HTTPException(status_code=503, detail="Meetily backend is not configured")
 
     async def _originate_call(
         self,
