@@ -31,9 +31,10 @@ decision_engine = DecisionEngine(transfer_threshold=settings.transfer_confidence
 llm_adapter = make_llm_adapter(settings)
 tts_adapter = OrpheusTTSAdapter(settings) if settings.tts_backend == "orpheus" else TTSAdapter(settings)
 stt_adapter = STTAdapter(settings)
-ari_client = AriClient(settings, db, llm_adapter, tts_adapter, stt_adapter)
 meetily_client = MeetilyClient(settings)
 transcription_service = TranscriptionService(settings, meetily_client, stt_adapter=stt_adapter)
+ari_client = AriClient(settings, db, llm_adapter, tts_adapter, stt_adapter,
+                       transcription_service=transcription_service)
 mcp_server = PhoneAgentMcpServer(
     settings,
     db,
