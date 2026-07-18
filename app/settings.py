@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     stt_whisper_language: str = "en"
     stt_ld_library_path: str = "/media/soloway/workspace/Devel/Tools/ai/xtts/venv/lib/python3.14/site-packages/nvidia/cusparselt/lib"
 
+    meetily_enabled: bool = False
+    meetily_backend_url: str = "http://127.0.0.1:5167"
+    meetily_whisper_url: str = "http://127.0.0.1:8178"
+    meetily_timeout_seconds: int = 300
+    meetily_summary_provider: str = "ollama"
+    meetily_summary_model: str = "llama3.2"
+    ffmpeg_binary: str = "ffmpeg"
+    voice_inbox_dir: Path = REPO_ROOT / "recordings" / "voice-inbox"
+
     llm_backend: str = "openclaw"
 
     ollama_base_url: str = "http://127.0.0.1:11434"

@@ -31,12 +31,14 @@ class AriClient:
         llm_adapter: LLMAdapter,
         tts_adapter: TTSAdapter,
         stt_adapter: STTAdapter,
+        transcription_service=None,
     ):
         self.settings = settings
         self.db = db
         self.llm_adapter = llm_adapter
         self.tts_adapter = tts_adapter
         self.stt_adapter = stt_adapter
+        self.transcription_service = transcription_service
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._transcription_tasks: set[str] = set()
@@ -368,10 +370,6 @@ class AriClient:
 
     async def _transcribe_call(self, call_id: str) -> None:
         try:
-            if not self.stt_adapter.is_configured():
-                self.db.add_event(call_id, "TranscriptSkipped", json.dumps({"reason": "stt-disabled"}))
-                return
-
             recording = self._mixmonitor_recording_path(call_id)
             for _ in range(30):
                 if recording.exists() and recording.stat().st_size > 0:
@@ -383,6 +381,39 @@ class AriClient:
                     "TranscriptSkipped",
                     json.dumps({"reason": "recording-missing", "file_path": str(recording)}),
                 )
+                return
+
+            if getattr(self.settings, "meetily_enabled", False) and self.transcription_service is not None:
+                try:
+                    result = await self.transcription_service.transcribe_voice_message(
+                        recording, source="pstn"
+                    )
+                except Exception as exc:
+                    logger.warning("Meetily transcription failed for %s: %s", call_id, exc)
+                    self.db.add_event(
+                        call_id,
+                        "TranscriptFailed",
+                        json.dumps({"file_path": str(recording), "error": str(exc)}),
+                    )
+                    return
+                self.db.add_transcript(
+                    call_id, str(recording), result.text, "", result.engine, result.source
+                )
+                self.db.add_event(
+                    call_id,
+                    "MeetilyTranscriptCreated",
+                    json.dumps({
+                        "file_path": str(recording),
+                        "engine": result.engine,
+                        "source": result.source,
+                        "text": result.text,
+                        "meeting_id": result.meeting_id,
+                    }),
+                )
+                return
+
+            if not self.stt_adapter.is_configured():
+                self.db.add_event(call_id, "TranscriptSkipped", json.dumps({"reason": "stt-disabled"}))
                 return
 
             try:
@@ -400,15 +431,13 @@ class AriClient:
             self.db.add_event(
                 call_id,
                 "TranscriptCreated",
-                json.dumps(
-                    {
-                        "file_path": str(recording),
-                        "language": transcript.language,
-                        "model": transcript.model,
-                        "source": transcript.source,
-                        "text": transcript.text,
-                    }
-                ),
+                json.dumps({
+                    "file_path": str(recording),
+                    "language": transcript.language,
+                    "model": transcript.model,
+                    "source": transcript.source,
+                    "text": transcript.text,
+                }),
             )
         finally:
             self._transcription_tasks.discard(call_id)

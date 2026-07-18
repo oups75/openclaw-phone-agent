@@ -31,6 +31,16 @@ Useful local endpoints:
 - `POST /calls/callto`
 - `POST /calls/dial`
 - `POST /mcp`
+- `POST /transcriptions` (voice message → Meetily transcript + archive)
+- `GET /transcriptions/{meeting_id}/summary`
+- `POST /transcriptions/search`
+
+Voice transcription for every channel (PSTN recordings, WhatsApp/Telegram
+voice notes, ElevenLabs agent calls) runs through
+[Meetily](https://github.com/Zackriya-Solutions/meetily) when
+`MEETILY_ENABLED=true` — see `docs/meetily-integration.md` for setup, the MCP
+transcription tools, the Telegram/WhatsApp bridge examples, and the optional
+Meetily desktop frontend.
 
 The phone-agent subprocess inherits `OPENCLAW_CONFIG_PATH=/tmp/openclaw-phone.json` and `OPENCLAW_STATE_DIR=/tmp/openclaw-phone-state` so the OpenClaw session can see the phone-control MCP server without mutating the default user profile.
 
